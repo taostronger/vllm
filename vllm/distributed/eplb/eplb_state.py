@@ -45,7 +45,7 @@ from vllm.logger import init_logger
 from vllm.model_executor.models.interfaces import MixtureOfExperts
 
 from .async_worker import start_async_worker
-from .policy import EPLB_POLICIES, AbstractEplbPolicy, DefaultEplbPolicy
+from .policy import EPLB_POLICIES, AbstractEplbPolicy, DefaultEplbPolicy,OmniEplbPolicy
 from .rebalance_execute import move_from_buffer, rearrange_expert_weights_inplace
 
 logger = init_logger(__name__)

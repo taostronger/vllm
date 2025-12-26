@@ -6,8 +6,9 @@ from vllm.config.parallel import EPLBPolicyOption
 
 from .abstract import AbstractEplbPolicy
 from .default import DefaultEplbPolicy
+from .omni_placement import OmniEplbPolicy
 
-EPLB_POLICIES = {"default": DefaultEplbPolicy}
+EPLB_POLICIES = {"default": DefaultEplbPolicy, "omni": OmniEplbPolicy}
 
 # Ensure that the EPLB_POLICIES keys match the EPLBPolicyOption values
 assert set(EPLB_POLICIES.keys()) == set(get_args(EPLBPolicyOption))
@@ -16,4 +17,5 @@ __all__ = [
     "AbstractEplbPolicy",
     "DefaultEplbPolicy",
     "EPLB_POLICIES",
+    "OmniEplbPolicy"
 ]
