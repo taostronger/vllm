@@ -839,9 +839,11 @@ class Llama4ForConditionalGeneration(
         expert_load_view: torch.Tensor,
         logical_to_physical_map: torch.Tensor,
         logical_replica_count: torch.Tensor,
+        affinity_view: torch.Tensor | None = None,
     ):
         self.language_model.set_eplb_state(
-            expert_load_view, logical_to_physical_map, logical_replica_count
+            expert_load_view, logical_to_physical_map, logical_replica_count,
+            affinity_view,
         )
         self.expert_weights = self.language_model.expert_weights
 

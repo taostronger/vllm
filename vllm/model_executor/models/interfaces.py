@@ -697,6 +697,7 @@ class MixtureOfExperts(Protocol):
         expert_load_view: Tensor,
         logical_to_physical_map: Tensor,
         logical_replica_count: Tensor,
+        affinity_view: Tensor | None = None,
     ) -> None:
         """
         Register the EPLB state in the MoE model.
@@ -713,6 +714,7 @@ class MixtureOfExperts(Protocol):
             expert_load_view: A view of the expert load metrics tensor.
             logical_to_physical_map: Mapping from logical to physical experts.
             logical_replica_count: Count of replicas for each logical expert.
+            affinity_view: Optional per-rank affinity tensor for adaptive EPLB.
         """
         for layer_idx, layer in enumerate(self.moe_layers):
             # Register the expert weights.
@@ -722,6 +724,7 @@ class MixtureOfExperts(Protocol):
                 expert_load_view=expert_load_view,
                 logical_to_physical_map=logical_to_physical_map,
                 logical_replica_count=logical_replica_count,
+                affinity_view=affinity_view,
             )
 
     def update_physical_experts_metadata(

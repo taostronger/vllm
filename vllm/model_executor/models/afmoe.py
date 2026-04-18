@@ -659,6 +659,7 @@ class AfmoeForCausalLM(nn.Module, SupportsPP, SupportsLoRA):
         expert_load_view: torch.Tensor,
         logical_to_physical_map: torch.Tensor,
         logical_replica_count: torch.Tensor,
+        affinity_view: torch.Tensor | None = None,
     ) -> None:
         for layer_idx, layer in enumerate(self.moe_layers):
             # Register the expert weights.
@@ -668,6 +669,7 @@ class AfmoeForCausalLM(nn.Module, SupportsPP, SupportsLoRA):
                 expert_load_view=expert_load_view,
                 logical_to_physical_map=logical_to_physical_map,
                 logical_replica_count=logical_replica_count,
+                affinity_view=affinity_view,
             )
 
     def embed_input_ids(self, input_ids: torch.Tensor) -> torch.Tensor:
