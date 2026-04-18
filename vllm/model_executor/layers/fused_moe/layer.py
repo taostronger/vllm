@@ -443,6 +443,7 @@ class FusedMoE(CustomOp):
         self.expert_load_view: torch.Tensor | None = None
         self.logical_to_physical_map: torch.Tensor | None = None
         self.logical_replica_count: torch.Tensor | None = None
+        self.affinity_view: torch.Tensor | None = None
         self.expert_placement_strategy: ExpertPlacementStrategy = (
             vllm_config.parallel_config.expert_placement_strategy
         )
@@ -1500,6 +1501,7 @@ class FusedMoE(CustomOp):
         expert_load_view: torch.Tensor,
         logical_to_physical_map: torch.Tensor,
         logical_replica_count: torch.Tensor,
+        affinity_view: torch.Tensor | None = None,
     ) -> None:
         """
         Register the EPLB state in this layer.
@@ -1510,6 +1512,8 @@ class FusedMoE(CustomOp):
         self.expert_load_view = expert_load_view[moe_layer_idx]
         self.logical_to_physical_map = logical_to_physical_map[moe_layer_idx]
         self.logical_replica_count = logical_replica_count[moe_layer_idx]
+        if affinity_view is not None:
+            self.affinity_view = affinity_view[moe_layer_idx]
 
     def ensure_moe_quant_config_init(self):
         if self.quant_method.moe_quant_config is None:
@@ -1648,6 +1652,14 @@ class FusedMoE(CustomOp):
             )
 
         if self.enable_eplb:
+            if self.affinity_view is not None:
+                flat_logical_ids = topk_ids.flatten().long()
+                ones = torch.ones_like(
+                    flat_logical_ids, dtype=self.affinity_view.dtype,
+                )
+                self.affinity_view.scatter_add_(
+                    dim=0, index=flat_logical_ids, src=ones,
+                )
             topk_ids = eplb_map_to_physical_and_record(
                 topk_ids=topk_ids,
                 expert_load_view=self.expert_load_view,

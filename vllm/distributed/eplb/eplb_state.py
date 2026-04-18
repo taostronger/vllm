@@ -45,7 +45,7 @@ from vllm.logger import init_logger
 from vllm.model_executor.models.interfaces import MixtureOfExperts
 
 from .async_worker import start_async_worker
-from .policy import EPLB_POLICIES, AbstractEplbPolicy, DefaultEplbPolicy
+from .policy import EPLB_POLICIES, AbstractEplbPolicy, AdaptiveEplbPolicy, DefaultEplbPolicy
 from .rebalance_execute import (
     RecvMetadata,
     move_from_buffer,
@@ -185,6 +185,16 @@ class EplbModelState:
     is_async_enabled: bool
     """
     The flag indicates whether the EPLB is running in async mode.
+    """
+    expert_affinity_pass: torch.Tensor | None
+    """
+    Per-rank affinity during this forward pass.
+    Shape: (num_moe_layers, num_logical_experts) when adaptive policy is used.
+    """
+    expert_affinity_window: torch.Tensor | None
+    """
+    Sliding window of per-rank affinity.
+    Shape: (window_size, num_moe_layers, num_logical_experts) when adaptive.
     """
     cuda_device_index: int | None
     """
@@ -416,6 +426,28 @@ class EplbState:
             device=self.device,
         )
 
+        is_adaptive = (
+            self.parallel_config.eplb_config.policy == "adaptive"
+        )
+        if is_adaptive:
+            expert_affinity_pass = torch.zeros(
+                (model.num_moe_layers, model.num_logical_experts),
+                dtype=torch.int32,
+                device=self.device,
+            )
+            expert_affinity_window = torch.zeros(
+                (
+                    self.expert_load_window_size,
+                    model.num_moe_layers,
+                    model.num_logical_experts,
+                ),
+                dtype=torch.int32,
+                device=self.device,
+            )
+        else:
+            expert_affinity_pass = None
+            expert_affinity_window = None
+
         # Set the initial progress of rearrangement to 3/4
         eplb_step_interval = self.parallel_config.eplb_config.step_interval
         self.expert_rearrangement_step = max(
@@ -481,6 +513,7 @@ class EplbState:
             expert_load_pass,
             logical_to_physical_map,
             logical_replica_count,
+            expert_affinity_pass,
         )
         if global_expert_load is not None:
             rearrange_expert_weights_inplace(
@@ -519,6 +552,8 @@ class EplbState:
                 recv_dst_rows=np.array([]),
             ),
             is_async_enabled=self.is_async,
+            expert_affinity_pass=expert_affinity_pass,
+            expert_affinity_window=expert_affinity_window,
             cuda_device_index=self.cuda_device_index,
             new_physical_to_logical_map=new_physical_to_logical_map,
             new_logical_to_physical_map=new_logical_to_physical_map,
@@ -617,6 +652,12 @@ class EplbState:
                     eplb_model_state.expert_load_pass.clone()
                 )
                 eplb_model_state.expert_load_pass.zero_()
+
+                if eplb_model_state.expert_affinity_pass is not None:
+                    eplb_model_state.expert_affinity_window[
+                        self.expert_load_window_step
+                    ] = eplb_model_state.expert_affinity_pass.clone()
+                    eplb_model_state.expert_affinity_pass.zero_()
 
             self.expert_load_window_step += 1
             if self.expert_load_window_step >= self.expert_load_window_size:
@@ -808,6 +849,21 @@ class EplbState:
         for eplb_model_state, global_expert_load_window in zip(
             self.model_states.values(), global_expert_load_windows
         ):
+            # Gather affinity matrix for adaptive policy
+            affinity_matrix = None
+            if eplb_model_state.expert_affinity_window is not None:
+                local_affinity = (
+                    eplb_model_state.expert_affinity_window.sum(dim=0)
+                )
+                gathered = [
+                    torch.zeros_like(local_affinity)
+                    for _ in range(num_gpus)
+                ]
+                torch.distributed.all_gather(
+                    gathered, local_affinity, group=ep_group,
+                )
+                affinity_matrix = torch.stack(gathered, dim=-1)
+
             # Get new expert mappings for the model
             (
                 new_physical_to_logical_map,
@@ -820,6 +876,7 @@ class EplbState:
                 num_nodes,
                 num_gpus,
                 eplb_model_state.physical_to_logical_map,
+                affinity_matrix,
             )
 
             if not eplb_model_state.is_async_enabled or is_profile:
